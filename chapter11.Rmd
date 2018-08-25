@@ -1,0 +1,255 @@
+---
+title: 'Statistical Sleuth in R: Chapter 11'
+author: "Adam Loy"
+date: "Last updated: `r format(Sys.time(), '%B %d, %Y')`"
+geometry: margin=.9in 
+output:
+  pdf_document:
+    number_sections: yes
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE, warning=FALSE}
+options(width = 90)
+knitr::opts_chunk$set(echo = TRUE, comment = NULL, fig.height = 3, fig.width = 4)
+library(dplyr)
+library(ggformula)
+library(Sleuth3)
+library(stargazer)
+library(car)
+```
+
+
+# Introduction
+
+This document is intended to help describe how to undertake analyses introduced as examples in the Third Edition of the *Statistical Sleuth* (2013) by Fred Ramsey and Dan Schafer. More information about the book can be found at http://www.proaxis.com/~panorama/home.htm.  
+
+This work adapts work done by Linda Loi, Ruobing Zhang, Kate Aloisio, and Nicholas J. Horton. Their work leveraged initiatives undertaken by Project MOSAIC (http://www.mosaic-web.org), an NSF-funded effort to improve the teaching of statistics, calculus, science and computing in the undergraduate curriculum. 
+
+In this chapter we need to load the following packages (remember, you will need to install packages you have never used before if you are using your own computer).
+
+```{r message=FALSE, warning=FALSE}
+library(ggformula) # graphics
+library(Sleuth3)   # Sleuth data sets
+library(broom)     # extract pieces of lm output
+library(gridExtra) # arrange multiple plots on a page
+library(stargazer) # tables to display/compare models
+library(car)       # easy diagnostic plots
+```
+
+We will also set some options to improve legibility of graphs and output.
+```{r eval=TRUE}
+# display four significant digits by default and no significance stars
+options(digits = 3, show.signif.stars = FALSE) 
+```
+
+
+# Alcohol metabolism in men and women
+
+How do men and women metabolize alcohol? This is the question addressed in case study 11.1 in *Sleuth*.
+
+## Data coding, summary statistics and graphical display
+
+We begin by loading the data and summarizing the variables
+
+```{r}
+summary(case1101)
+```
+
+A total of 32 volunteers were included in this data. There were 18 females and 14 males, as recorded on Display 11.1 (page 311 of the Sleuth).
+
+The following is a version of Display 11.2 (page 312):
+
+```{r}
+gf_point(Metabol ~ Gastric, data = case1101, shape = ~Alcohol, color = ~Sex) %>%
+  gf_labs(x = expression(paste("Gastric AD activity (", mu, "mol/min/g of tissue)", sep = "")), 
+          y = "First-pass metabolism (mmol/liter-hour)") %>%
+  gf_refine(scale_color_brewer(palette = "Dark2"), theme(legend.position = "top"))
+```
+
+The above plot uses shape and color to encode different information, which can be harder to read than necessary. A better idea is to use color and shape to encode the same information and to use faceting to introduce another variable:
+
+```{r}
+gf_point(Metabol ~ Gastric | Sex, data = case1101, shape = ~Alcohol, color = ~Alcohol) %>%
+  gf_labs(x = expression(paste("Gastric AD activity (", mu, "mol/min/g of tissue)", sep = "")), 
+          y = "First-pass metabolism (mmol/liter-hour)") %>%
+  gf_refine(scale_color_brewer(palette = "Dark2"), theme(legend.position = "top"))
+```
+
+## Multiple regression
+Next, we fit the full model (including all pairwise interactions) for estimating metabolism given a subjects gastric AD activity, whether they are alcoholic, and their sex. This first model is summarized on page 321 (Display 11.9). Notice that the baseline levels of `Sex` and `Alcohol` are redefined prior to modeling.
+
+```{r}
+case1101 <- case1101 %>%
+  mutate(Sex = factor(Sex, levels = c("Male", "Female")),
+         Alcohol = factor(Alcohol, levels = c("Non-alcoholic", "Alcoholic")))
+
+case1_mod1 <- lm(Metabol ~ Gastric * Sex * Alcohol, data = case1101)
+tidy(case1_mod1)
+```
+
+Notice also that the asterisk (`*`) is used to code interactions in R. When an interaction is specified in this way, R will fit all of the terms involved in the largest interaction. For example, in the above model formula we specified `Gastric * Sex * Alcohol` which resulted in all of the main effects (`Gastric` `Sex`, `Alcohol`), pairwise interactions (`Gastric:Sex`, `Gastric:Alcohol`, and `Sex:Alcohol`), and the triplet (`Gastric:Sex:Alcohol`) being included. The above model can be fit using the equivalent "long-hand" formula:
+
+```{r}
+case1_mod1 <- lm(Metabol ~ Gastric + Sex + Alcohol + Gastric * Sex + Sex * Alcohol + Gastric * Alcohol + 
+                   Gastric * Sex * Alcohol, data = case1101)
+tidy(case1_mod1)
+```
+
+Having fit the full model, we calculate a number of model diagnostics, including leverage, studentized (i.e. standardized) residuals, and Cook’s distance (pages 325-327).
+
+```{r}
+case1_aug <- augment(case1_mod1)
+```
+
+The 31st row of this augmented data frame is shown below:
+
+```{r}
+case1_aug[31,]
+```
+
+Note that in this augmented data frame leverage is called `.hat`, studentized (standardized) residuals are called `.std.resid`, and Cook's distances are called `.cooksd`.
+
+It is often easier to digest these values visually. The `infIndexPlot()` command in the `car` package allows us to do this just as in Display 11.12 (page 327):
+
+```{r fig.height = 8}
+infIndexPlot(case1_mod1)
+```
+
+Note: the "Bonferroni p-value" panel in the plot is displaying the results for a test of outlierhood.
+
+As pointed out in *Sleuth*, cases 31 and 32 have substantially larger studentized residuals than the other observations. Interestingly, observations 1 and 23 stand out more than 31 and 32 in our version of the index plots.
+
+The authors of *Sleuth* refit the model without observations 31 and 32.
+
+```{r}
+case1_mod2 <- lm(Metabol ~ Gastric + Sex + Alcohol + Gastric * Sex + Sex * Alcohol + Gastric * Alcohol + Gastric * Sex * Alcohol, data = case1101, subset = -c(31, 32))
+```
+
+A table comparing the model coefficients with and without cases 21 and 32 is shown below:
+
+```{r results='asis', echo=FALSE}
+stargazer(case1_mod1, case1_mod2, covariate.labels = c("Gastric activity (G)", "Female (F)", "Alcoholic (A)", "G x F", "F x A", "G x A", "G x F x A", "Constant"), single.row=TRUE, omit.table.layout = "sn", digits.extra = 3, digits = 3, column.labels = c("All 32 cases", "Case 31, 32 removed"), header = FALSE, title = "Comparing model fits with and without cases 31 and 32.")
+```
+
+## Refining the Model
+
+This section addresses the process of refining the model. First, we use an extra-sums-of-square F-test to determine whether the terms involving alcoholism can be removed from the full model, as shown in Display 11.13 (page 329).
+
+```{r}
+case1_mod3 <- lm(Metabol ~ Gastric * Sex, data = case1101, subset = -c(31, 32))
+anova(case1_mod3, case1_mod2)
+```
+
+As noted in *Sleuth* there is no evidence of an alcoholism effect, so we can utilize the smaller model. There are no issue revealed by inspection of the residual plots. Further, revisiting the case influence diagnostics, we now see that no observations stand out. (Note: the issues with cases 1 and 23 previously seen were due to the fact that there were so few alcoholics in the data set, so it was "easy" for points to be potentially influential due to data sparsity.)
+
+```{r fig.width = 8}
+residualPlots(case1_mod3, layout = c(1,3), tests = FALSE)
+```
+
+
+```{r fig.height =7}
+infIndexPlot(case1_mod3)
+```
+
+Next, we assess a model without an intercept, which is scientifically plausible and summarized in Display 11.14 (page 329).
+
+```{r}
+case1_mod4 <- lm(Metabol ~ Gastric + Gastric:Sex - 1, data = case1101, subset = -c(31, 32))
+tidy(case1_mod4)
+```
+
+```{r}
+anova(case1_mod4, case1_mod3)
+```
+
+Note that the “Summary of Statistical Findings” section (page 312) is based on this final model.
+
+
+# Blood brain barrier
+
+Neuroscientists working to better understand the blood brain barrier have infused rats with cells to induce brain tumors. This is the topic addressed in case study 11.2 in the *Sleuth*.
+
+## Data coding and summary statistics
+
+We begin by loading the data, performing transformations where needed, and summarizing the
+variables.
+
+```{r}
+names(case1102)
+
+case1102 <- case1102 %>%
+  mutate(Y = Brain/Liver,
+         SAC = as.factor(Time),
+         logliver = log(Liver),
+         logbrain = log(Brain),
+         logy = log(Brain/Liver),
+         logtime = log(Time),
+         Sex = relevel(Sex, ref = "Male"),
+         Treat = relevel(Treatment, ref = "NS")) # make "NS" referenec level
+
+summary(case1102)
+```
+
+
+A total of 34 rats were included in this experiment. Each rat was given either the barrier solution ($n = 17$) or a normal saline solution ($n = 17$). Then variables of interest were calculated and are displayed in Display 11.4 (page 314 of the *Sleuth*).
+
+
+## Graphical presentation
+
+A scatterplot of log ratio (Y) as a function of log time, as shown in Display 11.5 on page 315, is shown below.
+
+```{r}
+gf_point(Y ~ Time, data = case1102, shape = ~Treat) %>%
+  gf_refine(coord_trans(x = "log10", y="log10"),
+            scale_shape_manual(values = c(1, 16))) %>% # 1 = hollow, 16 = filled
+  gf_labs(x = "Sacrifice Time (hours)", y = "Tumor-to-Liver Concentration Ratio")
+```
+
+We can also graphically explore relationships between the variables using a scatterplot matrix.
+
+```{r fig.height = 6, fig.width = 6}
+scatterplotMatrix(~ logy + logbrain + logliver + Treat + SAC, smooth = FALSE , data = case1102)
+``` 
+
+## Multiple regression
+
+First, we fit the model proposed on page 317.
+
+```{r}
+case2_mod1 <- lm(logy ~ SAC * Treat + Days + Sex + Weight + Loss + Tumor, data = case1102)
+tidy(case2_mod1)
+```
+
+We can then display a residual plot to assess the fit of the above model. This is provided in Display 11.6 (page 318). Note that `id.n` prints the row numbers for the `n` largest residuals.
+
+```{r}
+residualPlot(case2_mod1, id = list(n = 2))
+```
+
+Next, we can use partial residual plots to examine the effects of the covariates (Sex and Days) after the design variables (sacrifice time and treatment) have been accounted for. To do this it is tempting to use partial residual plots, however, as defined in *Sleuth*, partial residuals cannot be calculated for terms involved in interactions, since it is impossible to isolate the effect of the term after accounting for the others (namely, the term(s) involved in the interaction(s)). To reproduce Display 11.16, we would need to determine exactly what the author's calculated. (My guess is that they fit the model without interactions if they followed their own definition.) See the last section of this packet for a reproduction of Display 11.15.
+
+
+## Refining the model
+
+Finally, we fit a refined model. These results can be found in Display 11.17 (page 334).
+
+```{r}
+case2_mod2 <- lm(logy ~ SAC + Treat, data = case1102)
+tidy(case2_mod2)
+
+anova(case2_mod2, case2_mod1)
+```
+
+
+# Partial residual plots
+
+To show the capabilities of `crPlot()`, consider the log brain weight vs. log gestation example that was revisited on pages 330-331. The partial residual plot from Display 11.15 is created by the code below.
+
+```{r}
+lgest_mod <- lm(log(Brain) ~ log(Body) + log(Gestation), data = case0902)
+crPlot(lgest_mod, variable = "log(Gestation)", smooth = FALSE)
+```
+
+As mentioned in *Sleuth*, the partial residual plot reveals that there is still a linear association between log brain weight and log gestation after account for the effect of log body weight.

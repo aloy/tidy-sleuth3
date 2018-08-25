@@ -1,0 +1,194 @@
+---
+title: 'Statistical Sleuth in R: Chapter 22'
+author: "Adam Loy"
+date: "Last updated: `r format(Sys.time(), '%B %d, %Y')`"
+geometry: margin=.9in 
+output:
+  pdf_document:
+    number_sections: yes
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE, warning=FALSE}
+options(width = 90)
+knitr::opts_chunk$set(echo = TRUE, comment = NULL, fig.height = 3, fig.width = 4)
+library(dplyr)
+library(ggformula)
+library(Sleuth3)
+library(broom)
+library(car)
+```
+
+
+# Introduction
+
+This document is intended to help describe how to undertake analyses introduced as examples in the Third Edition of the *Statistical Sleuth* (2013) by Fred Ramsey and Dan Schafer. More information about the book can be found at http://www.proaxis.com/~panorama/home.htm.  
+
+In this chapter we need to load the following packages (remember, you will need to install packages you have never used before if you are using your own computer).
+
+```{r message=FALSE, warning=FALSE}
+library(dplyr)     # data manipulation
+library(ggformula) # graphics
+library(Sleuth3)   # Sleuth data sets
+```
+
+We will also set some options to improve legibility of graphs and output.
+```{r eval=TRUE}
+# display four significant digits by default and no significance stars
+options(digits = 4, show.signif.stars = FALSE) 
+```
+
+
+# Age and Mating Success of Male Elephants
+
+## EDA
+
+To begin, we load the data and explore a few basic summary statistics:
+
+```{r}
+summary(case2201)
+```
+
+Next we plot the logarithm of the number of matings against age to explore the form of the relationship. (Note: 0.5 was added to Matings so that the natural log could be computed for all observations.) The plot reveals potential curvature in the relationship, which will be further explored.
+
+```{r display 22.2 -- no fit}
+gf_jitter(log(Matings + 0.5) ~ Age, data = case2201, height = 0.25, width = 0.25, pch = 1) %>%
+  gf_labs(x = "Age (years) -- Slightly Jittered", y = "Number of Matings (log scale)")
+```
+
+## Fitting the Poisson regression model
+
+Next, we fit the Poisson log-linear regression model with log-mean function
+
+$$\log(\mu) = \beta_0 + \beta_1 {\tt age} + \beta_2 {\tt age}^2$$
+
+```{r}
+glm1 <- glm(Matings ~ Age + I(Age^2), data = case2201, family = poisson)
+summary(glm1)
+```
+
+As pointed out by *Sleuth* (pp. 681-682), most of the estimated means are less than 5, so it is not wise to compare the residual deviance to a $\chi^2$ distribution.
+
+```{r}
+summary(fitted(glm1))
+```
+
+
+
+
+## Inference
+
+Wald test results are provided by `summary()` as part of the table of coefficients. We can also extract these results using the `tidy()` function from the `broom` package:
+
+```{r}
+tidy(glm1)
+```
+
+Further, we can construct confidence intervals either using the Wald procedure or the profile likelihood procedure. On page 683, this is discussed for the reduced model, without the quadratic term:
+
+```{r}
+# Eliminating the quadratic term
+reduced <- update(glm1, . ~ . - I(Age^2))
+
+# Wald CI
+beta1 <- coef(reduced)[2]
+se <- sqrt(vcov(reduced)[2,2])
+beta1 + c(-1, 1) * qnorm(.975) * se
+exp(beta1 + c(-1, 1) * qnorm(.975) * se)
+
+# Profile-likelihood CIs
+confint(glm1)
+```
+
+
+A drop-in-deviance test is carried out the same way it was in binomial logistic regression: we compare the full and reduced models using the `anova()` command.
+
+```{r}
+anova(reduced, glm1, test = "Chisq")
+```
+
+
+
+# Characteristics Associated with Salamander Habitat
+
+
+## EDA
+
+To begin, we load the data and explore a few basic summary statistics:
+
+```{r}
+summary(case2202)
+```
+
+Next we plot the logarithm of the number of salamanders against the potential explanatory variables.
+
+```{r fig.height = 5, fig.width=5}
+scatterplotMatrix(~ PctCover + ForestAge + log(Salamanders + 0.5), data = case2202, 
+                  smooth = FALSE, var.labels = c("PctCover", "ForestAge", "Salamanders"))
+```
+
+The interpretation and modeling implications of this scatterplot matrix are discussed on page 682. One key finding is that there appears to be defined groups based on the canopy cover: closed canopy (`PctCover` > 70) and open canopy (`PctCover` < 60). We add this grouping variable to the data set below.
+
+```{r}
+# Using 70% as the dividing line
+case2202$Closed <- ifelse(case2202$PctCover > 70,"closed", "open")
+```
+
+
+
+## Fitting the Poisson regression model
+
+To begin, a saturated second-order model (i.e. separate quadratic model) is fit for the log-mean outlined on page 682, and detailed on page 689. 
+
+```{r ssom}
+ssom <- glm(Salamanders ~ PctCover * ForestAge * Closed + I(PctCover^2) + I(ForestAge^2) + 
+              I(PctCover^2):Closed + I(ForestAge^2):Closed, 
+            data = case2202, family = poisson)
+summary(ssom)
+```
+
+The deviance goodness-of-fit test points to probable lack of fit, though this is only a rough test since the $\chi^2$ approximation based on large Poisson means is questionable.
+
+```{r}
+1 - pchisq(89.178, df = 35)
+```
+
+A plot of the deviance residuals against the fitted means can be examined (Display 22.7, page 681):
+
+```{r}
+gf_point(residuals(ssom, type = "deviance") ~ fitted(ssom)) %>%
+  gf_hline(yintercept = 0, color = "blue") %>%
+  gf_hline(yintercept = 2, color = "gray60", linetype = 2)  %>%
+  gf_hline(yintercept = -2, color = "gray60", linetype = 2) %>%
+  gf_labs(x = "Fitted means", y = "Deviance residual")
+```
+
+The residuals do not point to a problem with one or two outliers, rather it appears that the variability in the response exceeds what is allowed for by the Poisson log-linear model.
+
+
+## Model building using quasi-likelihood
+
+After identifying over dispersion (i.e. extra-Poisson variation), *Sleuth* proceeds with model building using quasi-likelihood methods. To test whether forest age is an important predictor after accounting for the other variables, we use a drop-in-deviance F test (see display 22.10 on page 689). To do this, we must refit the separate quadratic (i.e. SSOM) model using quasilikelihood and fit the reduced model specified in the null hypothesis:
+
+```{r}
+# The full model via quasi-likelihood
+ssom <- update(ssom, . ~ ., family = quasipoisson)
+
+# The reduced (inferential) model
+inferential_model <- glm(Salamanders ~ PctCover * Closed + I(PctCover^2) + 
+                           I(PctCover^2):Closed, data = case2202, family = quasipoisson)
+
+# drop-in-deviance F test
+anova(inferential_model, ssom, test = "F")
+```
+
+There is no evidence that the terms including forest age are necessary predictors. The reduced model (from Display 22.4) is shown below:
+
+```{r display 21.4 no fit}
+aug <- augment(inferential_model)
+gf_point(Salamanders ~ PctCover, data = aug) %>%
+  gf_line(exp(.fitted) ~ PctCover, color = ~Closed) %>%
+  gf_labs(x = "Percentage of Canopy Cover",
+          y = "Salamander Count")
+```

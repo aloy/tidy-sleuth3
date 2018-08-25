@@ -1,0 +1,271 @@
+---
+title: 'Statistical Sleuth in R: Chapter 8'
+author: "Adam Loy"
+date: "Last updated: `r format(Sys.time(), '%B %d, %Y')`"
+geometry: margin=.9in 
+output:
+  pdf_document:
+    number_sections: yes
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE, warning=FALSE}
+options(width = 90)
+library(dplyr)
+library(ggformula)
+library(Sleuth3)
+```
+
+
+# Introduction
+
+This document is intended to help describe how to undertake analyses introduced as examples in the Third Edition of the *Statistical Sleuth* (2013) by Fred Ramsey and Dan Schafer. More information about the book can be found at http://www.proaxis.com/~panorama/home.htm.  
+
+This work adapts work done by Linda Loi, Ruobing Zhang, Kate Aloisio, and Nicholas J. Horton. Their work leveraged initiatives undertaken by Project MOSAIC (http://www.mosaic-web.org), an NSF-funded effort to improve the teaching of statistics, calculus, science and computing in the undergraduate curriculum. 
+
+In this chapter we need to load the following packages (remember, you will need to install packages you have never used before if you are using your own computer).
+
+```{r message=FALSE, warning=FALSE}
+library(ggformula) # graphics
+library(Sleuth3)   # Sleuth data sets
+library(broom)     # extract pieces of lm output
+library(gridExtra) # arrange multiple plots on a page
+```
+
+We will also set some options to improve legibility of graphs and output.
+```{r eval=TRUE}
+options(digits=4) # display four significant digits by default
+```
+
+
+# Island Area and Number of Species
+
+What is the relationship between the area of islands and the number of animal and plant species living on them? This is the question addressed in case study 8.1 in *Sleuth*.
+
+## Summary statistics and graphical display
+
+We begin by reading the data and summarizing the variables.
+
+```{r}
+summary(case0801)
+```
+
+A total of 7 islands are included in this data as displayed in Display 8.1 (page 208). We can then observe the relationship between the area and the number of species for these islands with a scatterplot, akin to the top figure in Display 8.2 (page 209).
+
+```{r fig.height=3, fig.width=4}
+gf_point(Species ~ Area, data = case0801) %>%
+  gf_labs(x = "Area of Island (square miles)")
+```
+
+It appears that the relationship with the observed values is not linear, one way to address this issue is to transform the variables. Below is a scatterplot where both variables have been log transformed.
+
+```{r fig.height=3, fig.width=4}
+gf_point(log(Species) ~ log(Area), data = case0801) %>%
+  gf_lm() %>%
+  gf_labs(x = "Area of Island (square miles) (log scale)",
+          y = "Species (log scale)")
+```
+
+
+## Simple Linear Model
+
+We first fit the model for $\mu\{\log(Species)|\log(Area)\} = \beta_0 + \beta_1 \cdot\log(Area)$. This can be done by applying the log transformation directly in the `lm()` statement.
+
+```{r}
+lm1 <- lm(log(Species) ~ log(Area), data = case0801)
+summary(lm1)
+```
+
+Note: an alternative approach is to create transformed variables in the data set. This is easily done using the `mutate()` command in the `dplyr` package:
+
+```{r}
+case0801 <- mutate(case0801, logspecies = log(Species), logarea = log(Area))
+lm1 <- lm(logspecies ~ logarea, data = case0801)
+```
+
+
+Thus our estimated equation becomes, $\widehat{\mu} \{\log(Species)|\log(Area)\} = 1.94 + 0.25 \log(Area)$. Next, we calculate the 95% confidence interval for the estimates, note that the `logarea` 95% confidence interval is interpreted in the “Statistical Conclusion” on page 208:
+
+```{r}
+confint(lm1)
+```
+
+To interpret this log-log model the Sleuth notes that if $\widehat{\mu} \{\log(Species)|\log(Area)\} = \beta_0 + \beta_1 * \log(X)$ then $\text{median}\{Y|X \} = \exp(\beta_0)X^{beta_1}$ (page 217). For this example the researchers are interested in a doubling effect ($2\beta_1$). Therefore to obtain the 95% confidence interval for the multiplicative factor in the median we used the following code:
+
+```{r}
+2^confint(lm1)
+```
+
+Thus for this model the estimated median number of species is 1.19 ($2^{0.25}$) with a 95% confidence interval between (1.16, 1.21). These match the numbers found on page 217.
+
+
+##  Assessment of Assumptions
+
+First we will have to assume independence from the information given. As seen in the above Q-Q plots, the observations for each variable were not normally distributed, once we performed a log transformation the distribution of the values became more approximately normal. While it can be useful to check the distribution of the response variable prior to modeling, it's still important to check the distribution of the residuals.
+
+Next, we can check for linearity of the mean function, $\widehat{\mu} \{\log(Species)|\log(Area)\}$ using either a plot of the residuals vs. the fitted values or a plot of the residuals vs. $\log(Area)$ (these will provide the same information). Using the `ggformula` toolkit, we first create an augmented data set where we add the residuals and fitted values.
+
+```{r fig.height=3, fig.width=7}
+aug1 <- augment(lm1)
+res1 <- gf_point(.resid ~ .fitted, data = aug1) %>%
+  gf_hline(yintercept = 0, col = "blue", lty = 2) %>%
+  gf_labs(x = "Fitted values", y = "Residuals",  title = "Residuals vs. fitted values")
+
+res2 <- gf_point(.resid ~ logarea, data = aug1) %>%
+  gf_hline(yintercept = 0, col = "blue", lty = 2) %>%
+  gf_labs(x = "Fitted values", y = "Residuals",  title = "Residuals vs. fitted values")
+
+grid.arrange(res1, res2, ncol = 2)
+```
+
+The residual plot shows no apparent curavture, so the assumption of linearity appears to be valid. Additionally, there are no signs of non-constant variance (don't over-interpret the two larger residuals here, with so few points this is more likely due to sampling variability).
+
+To finish, we examine the distribution of the standardized residuals. The Q-Q plot exhibits no substantial deviations from the assumption of normality.
+
+```{r fig.height=2.5, fig.width=3.5}
+gf_qq(~.std.resid, data = aug1) %>%
+  gf_qqline() %>%
+  gf_labs(x = "N(0, 1) quantiles", y = "Standardized residuals")
+```
+
+
+
+# Breakdown Times for Insulating Fluid Under Different Voltages
+
+How does the distribution of breakdown time depend on voltage? This is the question addressed in case study 8.2 in the *Sleuth*.
+
+##  Summary statistics and graphical display
+
+We begin by reading the data and summarizing the variables.
+
+```{r fig.height=3, fig.width=4}
+ summary(case0802)
+```
+
+A total of 76 samples of insulating fluids are included in this data. Each sample was placed in one of 7 groups representing different degrees of voltage. Each group varied in sample size as shown in Display 8.4 (page 211). Below is a version of Display 8.4 rendered in R (and without the dual y-axis).
+
+```{r}
+gf_point(log(Time) ~ Voltage, data = case0802) %>%
+  gf_lm() %>%
+  gf_labs(x = "Voltage Level (kV)", y = "Breakdown Time (minutes) (log scale)") %>%
+  gf_refine(scale_x_continuous(breaks = seq(26, 38, by = 2)))
+```
+
+To see why a log transformation was initially proposed for breakdown time, consider the histogram of breakdown times (left).
+
+```{r fig.height=2.5, fig.width=6}
+h3 <- gf_histogram(~Time, data = case0802, bins = 10) 
+h4 <- gf_histogram(~log(Time), data = case0802, bins = 10)
+grid.arrange(h3, h4, ncol = 2)
+```
+
+The distribution of Time is highly skewed with a long right tail. In such cases, the natural log often helps "normalize" the variables (as seen on the right).
+
+
+## Simple linear regression models
+
+The model that the researchers want to analyze is $\mu \{\log(Time)|Voltage\} = \beta_0 + \beta_1 \cdot Voltage$.
+
+```{r}
+lm2 <- lm(log(Time) ~ Voltage, data = case0802)
+summary(lm2)
+```
+
+The estimated model is $\widehat{\mu} \{\log(Time)|Voltage\} = 18.96 -0.51 \log(Area)$. The $R^2$ for the model is 51.36%, as discussed on page 222. To interpret the model we first exponentiate the estimated coefficients because the response variable is logged, as shown on page 216.
+
+```{r}
+exp(coef(lm2))
+```
+
+A 1 kV increase in voltage is associated with a multiplicative change in the median breakdown time of 0.6.
+
+Next we can calculate 95% confidence intervals for the slope and intercept. (Remember that we still need to exponentiate the output in order to interpret it.)
+
+```{r}
+exp(confint(lm2))
+```
+
+The 95% confidence interval for the multiplicative change in median breakdown time is (0.54, 0.68), as seen on page 216.
+
+
+Next, we can assess the fit using the Analysis of Variance (ANOVA) as outlined in section 8.5. The ANOVA results below match those in the top half of Display 8.8 (page 219).
+
+```{r}
+anova(lm2)
+```
+
+We can then compare this with a model with separate means for each group.
+
+```{r}
+lm3 <- lm(log(Time) ~ as.factor(Voltage), data = case0802)
+summary(lm3)
+```
+
+This model has a F-statistic of 13 with a p-value < 0.0001, as shown in the bottom half of Display 8.8 (page 218).
+
+```{r}
+anova(lm3)
+```
+
+Note that the values for the Residuals can also be found in the bottom half of Display 8.8 (page 219).
+
+The F-statistic and its associated p-value for the lack-of-fit discussion on page 220 can be calculated by comparing the two models with an ANOVA.
+
+```{r}
+anova(lm2, lm3)
+```
+
+
+## Assessment of Assumptions
+
+First we will have to assume independence for the information given. 
+
+Next, we can check for linearity. The following figure is akin to the right panel in Display 8.14 (page 226).
+
+```{r fig.height=2.5, fig.width=3.5}
+aug2 <- augment(lm2)
+
+gf_qq(~.std.resid, data = aug2) %>%
+  gf_qqline() %>%
+  gf_labs(x = "Normal quantiles", y = "Standarized residuals")
+```
+
+The points on the Q-Q plot are close enough to the straight line that we can assume the assumption of normally distribution residuals is reasonable.
+
+To assess linearity and constant error variance (i.e. homoscedasticity) we turn to a residual plot.
+
+```{r fig.height=3, fig.width=4}
+gf_point(.resid ~ .fitted, data = aug2) %>%
+  gf_hline(yintercept = 0, linetype = 2, color = "blue") %>%
+  gf_labs(x = "Fitted values", y = "Residuals")
+```
+
+There is no apparent curvature seen on the residual plot; however, the variability does not appear to be constant across all of the fitted values (or Voltage if you plot the residuals vs. X).
+
+
+# Other transformations
+
+*Sleuth* also discusses the use of a square root transformation for the breakdown time. The following figure is a scatterplot of the square root of breakdown time versus voltage, as seen in the left figure in Display 8.7 (page 215).
+
+```{r fig.height=3, fig.width=4}
+gf_point(sqrt(Time) ~ Voltage, data = case0802) %>%
+  gf_lm() %>%
+  gf_labs(x = "Square root of breakdown time", y = "Voltage")
+```
+
+We can assess this transformation by observing the residual plot based on the simple linear regression fit, as seen in the right figure in Display 8.7 (page 215).
+
+```{r}
+lm4 <- lm(sqrt(Time) ~ Voltage, data = case0802)
+summary(lm4)
+```
+
+If we only wish to access the residuals and fitted values, we can actually use the fitted linear model as our data set. This no longer works if want standardized residuals or to plot the residuals against other variables, so it's wise to use `agument()` if you think that you might forget this restriction.
+
+```{r fig.height=3, fig.width=4}
+gf_point(.resid ~ .fitted, data = lm4) %>%
+  gf_hline(yintercept = 0, linetype = 2, color = "blue") %>%
+  gf_labs(x = "Fitted values", y = "Residuals")
+```
+

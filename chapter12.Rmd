@@ -1,0 +1,341 @@
+---
+title: 'Statistical Sleuth in R: Chapter 12'
+author: "Adam Loy"
+date: "Last updated: `r format(Sys.time(), '%B %d, %Y')`"
+geometry: margin=.9in 
+output:
+  pdf_document:
+    number_sections: yes
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE, warning=FALSE}
+options(width = 90)
+knitr::opts_chunk$set(echo = TRUE, comment = NULL, fig.height = 3, fig.width = 4)
+library(dplyr)
+library(ggformula)
+library(Sleuth3)
+library(stargazer)
+library(car)
+```
+
+
+# Introduction
+
+This document is intended to help describe how to undertake analyses introduced as examples in the Third Edition of the *Statistical Sleuth* (2013) by Fred Ramsey and Dan Schafer. More information about the book can be found at http://www.proaxis.com/~panorama/home.htm.  
+
+This work adapts work done by Linda Loi, Ruobing Zhang, Kate Aloisio, and Nicholas J. Horton. Their work leveraged initiatives undertaken by Project MOSAIC (http://www.mosaic-web.org), an NSF-funded effort to improve the teaching of statistics, calculus, science and computing in the undergraduate curriculum. 
+
+In this chapter we need to load the following packages (remember, you will need to install packages you have never used before if you are using your own computer).
+
+```{r message=FALSE, warning=FALSE}
+library(ggformula) # graphics
+library(Sleuth3)   # Sleuth data sets
+library(broom)     # extract pieces of lm output
+library(gridExtra) # arrange multiple plots on a page
+library(stargazer) # tables to display/compare models
+library(car)       # easy diagnostic plots
+library(MASS)      # For stepwise selecion
+library(leaps)     # for all subsets selection
+```
+
+We will also set some options to improve legibility of graphs and output.
+```{r eval=TRUE}
+# display four significant digits by default and no significance stars
+options(digits = 3, show.signif.stars = FALSE) 
+```
+
+
+# State Average SAT Scores
+
+What variables are associated with state SAT scores? This is the question addressed in case study 12.1 in the *Sleuth*.
+
+##  Summary statistics
+
+We begin by loading the data and summarizing the variables
+
+
+```{r}
+summary(case1201)
+```
+
+
+The data are shown on page 347 (display 12.1). A total of 50 state average SAT scores are included in this data set.
+
+## Dealing with Many Explanatory Variables
+
+The following graph is presented as Display 12.4 (page 356).
+
+```{r fig.height=8, fig.width=8, out.height='0.7\\textwidth'}
+pairs(~Takers + Rank + Years + Income + Public + Expend + SAT, data = case1201)
+```
+
+Using the `car` or `GGally` packages you can produce "fancier" versions of this scatterplot matrix:
+
+```{r fig.height=8, fig.width=8, out.height='0.7\\textwidth'}
+# Using the car package
+scatterplotMatrix(~Takers + Rank + Years + Income + Public + Expend + SAT, 
+                  diagonal=list(method ="histogram"), smooth = FALSE, data = case1201)
+```
+
+```{r message=FALSE, fig.height=8, fig.width=8, out.height='0.7\\textwidth'}
+# Using the GGally package
+library(GGally)
+ggpairs(columns = c("Takers", "Rank", "Years", "Income", "Public", "Expend", "SAT"), data = case1201)
+```
+
+Based on the scatterplot matrix, we choose to transform the percentage of SAT takers using the (natural) logarithm. An initial model is then fit using the transformed percentage of SAT takers  and median class rank (page 355-357):
+
+```{r}
+case1_mod1 <- lm(SAT ~ Rank + log(Takers), data = case1201)
+summary(case1_mod1)
+```
+
+From the regression output, we observe that these two variables can explain 81.5% of the
+variation in SAT scores.
+
+Next we fit a linear regression model using all variables and create the partial residual plot
+presented as Display 12.5 (page 357).
+
+```{r}
+case1_mod2 <- lm(SAT ~ log(Takers) + Income + Years + Public + Expend + Rank, data = case1201)
+summary(case1_mod2)
+```
+
+According to the Cook’s distance plot, obs 29 (Alaska) seems to be an influential outlier. We
+may consider removing this observation from the data set.
+
+```{r fig.height = 8, out.height='0.4\\textheight'}
+infIndexPlot(case1_mod2, vars = c("Cook", "Studentized", "hat"))
+```
+
+*Sleuth* compares the coefficient for `Expend` with and without Alaska in the data set using the partial residual plots in Display 12.5.
+
+```{r}
+case1_mod2na <- update(case1_mod2, subset = (State != "Alaska"))
+tidy(case1_mod2na)
+```
+
+
+```{r fig.width = 6, fig.height = 3, message=FALSE, warning=FALSE, error=FALSE}
+par(mfrow = c(1,2))
+crPlot(case1_mod2, variable = "Expend")
+crPlot(case1_mod2na, variable = "Expend")
+invisible(dev.off())
+```
+
+The difference between these two slopes indicates that Alaska is an influential observation. Following the analysis presented in the text, we remove Alaska from the data set.
+
+```{r}
+case1201na <- filter(case1201, State != "Alaska")
+```
+
+
+## Sequential Variable Selection
+
+The book uses F-statistics as the criterion to perform the procedures of forward selection and
+backward elimination presented on page 359. As mentioned on page 359, the entire forward selection
+procedure required the fitting of only 16 of the 64 possible models presented on Display 12.6 (page 360). These 16 models utilized Expenditure and log(Takers) to predict SAT scores. Further, as
+mentioned on page 359, the entire backward selection procedure required the fitting of only 3
+models of the 64 possible models. These 3 models used Year, Expenditure, Rank and log(Takers)
+to predict SAT scores.
+
+To the best of our knowledge, there is not an automated solution in R to run step-wise selection or forward selection. You can implement these manually using the `addterm()` and `dropterm()` functions found in the `MASS` package. For example, starting with the full model outlined in *Sleuth*, we can take the first two steps in backward elimination using the F-test:
+
+```{r}
+dropterm(case1_mod2na, test = "F")
+```
+
+Based on the above summary, `Public` is the term with the smallest F-statistic, so we should delete it.
+
+```{r}
+drop1_mod <- update(case1_mod2na, . ~ . - Public)
+tidy(drop1_mod)
+```
+
+Now we determine what (if anything) should be eliminated next:
+
+```{r}
+dropterm(drop1_mod, test = "F")
+```
+
+Based on the above summary, `Income` is the term with the smallest F-statistic, so we should delete it.
+
+```{r}
+drop2_mod <- update(drop1_mod, . ~ . - Income)
+tidy(drop2_mod)
+```
+
+This is our stopping point, since all of the F-statistics are greater than 4:
+
+```{r}
+dropterm(drop2_mod, test = "F")
+```
+
+When model selection is relatively guided (or the pool of variables is small) manual implementation is possible (albeit tedious). To automate the process we need to utilize either the AIC or BIC criteria for step-wise selection. Below, we demonstrate this procedure using AIC criterion. 
+
+To run forward selection, you need to start with some preliminary model. This could be the intercept-only model, but it seems reasonable to include one predictor to start. Here, we choose log(Taker) as our preliminary predictor because it has the largest F-value when we fitted `case1201na` as seen above. Further, we need to give the selection procedure an upper bound for complexity, here we use `case1_mod2na`.
+
+```{r}
+# Forward selection
+prelim_mod <- lm(SAT ~ log(Takers), data = case1201na)
+stepAIC(prelim_mod, scope = list(upper = case1_mod2na, lower = ~1), 
+  direction = "forward", trace = FALSE)$anova
+```
+
+To run backward elimination, we simply provide the richest model under consideration and specify the direction:
+
+```{r}
+# Backward Elimination
+stepAIC(case1_mod2na, direction="backward", trace=FALSE)$anova
+```
+
+To run step-wise selection, we again specify the richest model under consideration and specify the direction:
+
+```{r}
+# Stepwise Regression
+stepAIC(case1_mod2na, direction="both", trace=FALSE)$anova
+```
+
+In this case study, the final model includes log(Takers), Expenditure, Years, and Rank. The final model can explain 91.1% percent or the variation of SAT.
+
+```{r}
+final_mod <- lm(SAT ~ log(Takers) + Years + Expend + Rank, case1201na)
+summary(final_mod)
+```
+
+Note, the three procedures do not always agree, so you should think of the results as a few competing models to further explore.
+
+Additionally, remember that the full (i.e. richest) model should be checked for deficiencies and multicollinearity prior to being used with model selection.
+
+
+## Model Selection Among All Subsets
+
+The $C_p$-statistic can be an useful criterion to select model among all subsets. Here, we give an example about how to calculate this statistic for one model, which includes log(Takers), Expenditure, Years and Rank.
+
+```{r}
+sigma_final <- summary(final_mod)$sigma^2 # sigma-squared of chosen model
+sigma_full <- summary(case1_mod2na)$sigma^2   # sigma-squared of full model
+n <- 49  # sample size
+p <- 4 + 1 # number of coefficients in model
+Cp <- (n - p) * sigma_final / sigma_full + (2 * p - n)
+Cp
+```
+
+AIC and BIC are also useful criteria and each can be easily calculated for any fitted regression model. Below we calculate AIC and BIC for `case1_mod2na`:
+
+```{r}
+AIC(case1_mod2na)
+BIC(case1_mod2na)
+```
+
+While it can be useful to calculate these criteria for a fitted model, to conduct all-subsets model selection we turn to the implementation in the `leaps` package. To run model selection through an exhaustive search of all models we can use the `regsubsets` command.
+
+```{r}
+predictors <- dplyr::select(case1201na, -State, -SAT)
+response <- case1201na$SAT
+allsubsets_results <- regsubsets(x = predictors, y = response, method = "exhaustive")
+allsubsets_results
+```
+
+By default, `regsubsets` returns information about the top performing model of each size. To return the top `n` models of each size, add the argument `nbest = n` (where you specify `n`) to the call. To access the values of BIC and $C_p$, first run `summary`:
+
+```{r}
+# Calculate the summary of the selection
+top_models <- summary(allsubsets_results)
+top_models$cp  # print Cp
+top_models$bic # print BIC
+```
+
+Alternatively, you can plot the results:
+
+```{r fig.width = 7, fig.height = 5}
+par(mfrow = c(1,2))
+plot(allsubsets_results, scale = "bic")
+plot(allsubsets_results, scale = "Cp")
+```
+
+```{r include=FALSE}
+dev.off()
+```
+
+
+# Sex Discrimination in Employment
+
+Do females receive lower starting salaries than similarly qualified and similarly experience males and did females receive smaller pay increases than males? These are the questions explored in case 12.2 in the *Sleuth.*
+
+## Summary Statistics
+
+We begin by summarizing the data.
+
+```{r}
+summary(case1202)
+```
+
+
+The data is shown on page 350-351 as display 12.3. A total of 93 employee salaries are included: 61 females and 32 males. Next, we present a full graphical display for the variables within the data set and the log of the beginning salary variable.
+
+```{r fig.height=8, fig.width=8, out.height='0.7\\textwidth'}
+scatterplotMatrix(~log(Bsal) + Senior + Age + Educ + Exper | Sex, 
+                  diagonal=list(method ="histogram"), 
+                  col = carPalette(),
+                  smooth = FALSE, 
+                  data = case1202)
+
+```
+
+Through these scatterplots it appears that beginning salary should be on the log scale and the starting model without the effects of gender will be a saturated second-order model variables including Seniority, Age, Education, Experience, as main effects, quadratic terms, and their full interactions (See Display 12.10 on page 367). The code below runs all subset model selection on this model. Note that the typical model conventions (having the main effect for a variable if it's quadratic or interaction term are included) are not followed, so you need to *think* about these results.
+
+## Model Selection
+
+To determine the best subset of these variables we compare $C_p$ and BIC statistics. Display 12.11 shows the $C_p$ statistics for models that meet ‘good practice’ and have small $C_p$ values. We will demonstrate how to calculate the $C_p$ statistics for the two models with the lowest $C_p$ statistics discussed in “Identifying Good Subset Models” on pages 367-368.
+
+
+```{r}
+case1202_subsets <- regsubsets(log(Bsal) ~ (Senior + Age + Educ + Exper)^2 + I(Senior^2) + 
+                                 I(Age^2) + I(Age^2) + I(Exper^2), 
+           nvmax=25, 
+           data=case1202)
+case1202_summary <- summary(case1202_subsets)
+```
+
+The results can be a bit tough to digest, so it can be useful to make an index plot of the metric of interest.
+
+```{r fig.height=2.5, fig.width = 6}
+p <- apply(case1202_summary$which, 1, sum) # number of coefs in models
+index_df <- data.frame(p = p - 1, bic = case1202_summary$bic, 
+                       cp = case1202_summary$cp)
+
+bic_plot <- gf_point(bic ~ p, data = index_df)
+cp_plot <- gf_point(cp ~ p, data = index_df)
+grid.arrange(bic_plot, cp_plot, ncol = 2)
+```
+
+Using both BIC a model with 5 slope coefficients is flagged as "best" and using $C_p$ a model with 6 slope coefficients is flagged as "best". We can see the terms and their estimates by using the `coef()` command:
+
+```{r}
+coef(case1202_subsets, id = 5)
+coef(case1202_subsets, id = 6)
+```
+
+Looking at the coefficients we see that these models do not follow model-fitting convention. For example, `Senior:Educ` is in the model without `Senior`. If you wish to use a method that follows this convention, then using a sequential model selection approach can be considered.
+
+```{r}
+ssom <- lm(log(Bsal) ~ (Senior + Age + Educ + Exper)^2 + I(Senior^2) + I(Age^2) + 
+             I(Exper^2), data = case1202)
+case1202_step <- stepAIC(ssom, direction = "backward", k = log(nrow(case1202)), trace = 0)
+summary(case1202_step)
+```
+
+The final model selected by backwards elimination matches the one proposed by *Sleuth*. To finish their analysis, the authors add `Sex` into the model:
+
+```{r}
+discrim_mod <- update(case1202_step, . ~ . + Sex)
+summary(discrim_mod)
+```
+
+
+
+Note: If you use `regsubsets()` for selection, you have to refit the selected model using `lm()` as usual in order to make predictions, etc.
+

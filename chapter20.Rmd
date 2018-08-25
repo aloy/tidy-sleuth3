@@ -1,0 +1,250 @@
+---
+title: 'Statistical Sleuth in R: Chapter 20'
+author: "Adam Loy"
+date: "Last updated: `r format(Sys.time(), '%B %d, %Y')`"
+geometry: margin=.9in 
+output:
+  pdf_document:
+    number_sections: yes
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE, warning=FALSE}
+options(width = 90)
+knitr::opts_chunk$set(echo = TRUE, comment = NULL, fig.height = 3, fig.width = 4)
+library(dplyr)
+library(ggformula)
+library(Sleuth3)
+
+elogit <- function(x, y, nbins) 
+{
+  if (is.factor(y)) y <- ifelse(y==levels(y)[2], 1, 0)
+  # STEP 1
+  # create "nbins" number of equal-length bins using x values
+  brks <- hist(x, breaks = seq(min(x), max(x), l = nbins + 1), plot = F)$breaks
+  
+  # get the midpoint x value for each bin 
+  midpt.x <- hist(x, breaks = seq(min(x), max(x), l = nbins + 1), plot = F)$mid
+  
+  # STEP 2:
+  # cut command: assign each data point to one of the bins, using right interval inclusion and including minimum x value in the lowest bin
+  groups <- cut(x, breaks = brks, include.lowest = T)
+  
+  # number of cases that fall in each bin
+  groups.n <- table(groups)
+ 
+   # STEP 3: 
+  # get the empirical prop. of successes in each group
+  emp.prop <- (tapply(y, groups, sum) + .5) / (groups.n + 1)
+  
+  # empirical odds of successes in each group
+  emp.odds<- emp.prop/(1-emp.prop)
+  
+  # empirical log odds of successes in each group
+  emp.logodds <- log(emp.odds)
+  
+  RES <- data.frame(group = names(groups.n),
+                    count = as.numeric(groups.n),
+                    midpoint.x = midpt.x,
+                    eprob = as.numeric(emp.prop),
+                    eodds = as.numeric(emp.odds),
+                    elogit = as.numeric(log(emp.odds)))
+  RES
+}
+```
+
+
+# Introduction
+
+This document is intended to help describe how to undertake analyses introduced as examples in the Third Edition of the *Statistical Sleuth* (2013) by Fred Ramsey and Dan Schafer. More information about the book can be found at http://www.proaxis.com/~panorama/home.htm.  
+
+In this chapter we need to load the following packages (remember, you will need to install packages you have never used before if you are using your own computer).
+
+```{r message=FALSE, warning=FALSE}
+library(dplyr)     # data manipulation
+library(ggformula) # graphics
+library(Sleuth3)   # Sleuth data sets
+```
+
+We will also set some options to improve legibility of graphs and output.
+```{r eval=TRUE}
+# display four significant digits by default and no significance stars
+options(digits = 4, show.signif.stars = FALSE) 
+```
+
+
+# Survival in the Donner Party
+
+For any given age, were the odds of survival in the Donner Party greater for women than men? This is the question addressed in case study 20.1 in the *Sleuth*.
+
+## Summary statistics
+
+We begin by reading the data (which is done when you loaded the Sleuth3 package) and exploring the relationships between age, sex, and survival status.
+
+```{r}
+summary(case2001)
+```
+
+To begin exploring the relationship between `Status` and `Age` we can construct side-by-side boxplots
+```{r }
+gf_boxplot(Age ~ Status, data = case2001) %>%
+  gf_refine(coord_flip())
+```
+
+We see that younger adults were more likely to survive. We can dig a little deeper into this association by creating a conditional density plot, where the conditional distribution of survival status given age is plotted:
+
+```{r}
+cdplot(Status ~ Age, data = case2001)
+```
+
+The conditional density plot supports the claim that younger adults seem more likely to survive.
+
+To explore the relationship between `Status` and `Sex` we can construct a spine plot, where the conditional distribution of survival is displayed by sex.
+
+```{r}
+spineplot(Status ~ Sex, data = case2001)
+```
+
+*Note:* In order for our results to match those presented in the *Sleuth* we must reorder the levels of `Status`, making `Male` the reference/baseline level. This is easily done using the `relevel()` command:
+
+```{r}
+case2001$Sex <- relevel(case2001$Sex, ref = "Male")
+```
+
+
+## Fitting the logistic regression model
+
+The following code presents the results interpreted on page 608 and presented in Display 20.6 (on page 614):
+
+```{r}
+# Parallel lines model
+donner_mod1 <- glm(Status ~ Age + Sex, data = case2001, family = binomial) 
+summary(donner_mod1)
+```
+
+A logistic regression model with an interaction term between age and sex is considered in Display 20.5 (on page 613). This model is fit using the code below:
+
+```{r}
+# Separate lines model
+donner_mod2 <- glm(Status ~ Age * Sex, data = case2001, family = binomial)
+summary(donner_mod2)
+```
+
+
+## Inferential tools
+
+First, Display 20.5 (on page 613) details how to carryout Wald's test for $\beta_{\rm age \times sex} = 0$ from the second model. Notice that you can use the output from `summary(donner_mod2)` to conduct this test.
+
+Next, the *Sleuth* builds a confidence interval for $\beta_{\rm fem}$ from the parallel lines model (i.e. model 1). This **is not** the confidence interval returned by `confint()`, so it must be constructed by hand. Remember that the model coefficients are on the log-odds scale, be sure to back-transform in order to obtain interpretations on the odds scale!
+
+```{r}
+beta_fem <- coef(donner_mod1)[3]
+se_fem <- sqrt(vcov(donner_mod1)[3,3])
+upper <- beta_fem + qnorm(.975) * se_fem
+upper
+lower <- beta_fem - qnorm(.975) * se_fem
+lower
+exp(upper)
+exp(lower)
+```
+
+A more-reliable confidence interval for the coefficients can be obtained using the theory of the drop-in deviance test. This profile-likelihood confidence interval is obtained for all of the coefficients below:
+
+```{r}
+CIs <- confint(donner_mod1, level = 0.95)
+CIs
+
+# Backtransform to compare to the interval above
+exp(CIs[3,]) 
+```
+
+Notice that the intervals may disagree. Here the normal distribution gives the interval (1.124, 21.71) while the profile-likelihood confidence interval is (1.215, 25.246). 
+
+
+
+
+
+# Birdkeeping and Lung Cancer
+
+After controlling for age, socioeconomic status and smoking, is an additional risk of lung cancer associated with birdkeeping? This is the question addressed in case study 20.2 in the *Sleuth*.
+
+## Summary statistics
+
+We begin by reading the data and recoding a few variable so that they match the coding using in the *Sleuth*.
+
+
+```{r}
+summary(case2002)
+
+# Adjust the coding to match Sleuth's
+case2002 <- case2002 %>%
+  mutate(LC = relevel(LC, ref = "NoCancer"),
+         FM = relevel(FM, ref = "Male"),
+         SS = relevel(SS, ref = "Low"),
+         BK = relevel(BK, ref = "NoBird"))
+```
+
+Next, we create a coded (and faceted) scatterplot of years of smoking against age, where the plotting symbols are used to represent lung cancer status (Display 20.10, page 621):
+
+```{r}
+gf_point(YR ~ AG | BK:LC, shape = ~LC, data = case2002) %>%
+  gf_refine(theme(legend.position = "none"))
+```
+
+
+## The drop-in-deviance test
+
+The goal of this case study is to see whether birdkeeping is associated with increased odds of lung cancer after accounting for several other factors. To do this, the *Sleuth* conducts a likelihood ratio test, also referred to as a drop-in-deviance test. In order conduct this test we need a full and reduced model, just like for an extra-sum-of-squares $F$-test for regression.
+
+The full model from Display 20.7 (on page 616) is fitted below:
+
+```{r}
+full_model <- glm(LC ~ FM + AG + SS + YR + BK, data = case2002, family = binomial)
+full_model
+```
+
+The reduced model from Display 20.7 (on page 616) is fitted below: 
+
+```{r}
+reduced_model <- glm(LC ~ FM + AG + SS + YR, data = case2002, family = binomial)
+reduced_model
+```
+
+The drop-in-deviance test can be conducted by hand, as shown below:
+```{r}
+# test statistic
+dd_stat <- deviance(reduced_model) - deviance(full_model)
+dd_stat
+
+# d.f.
+df <- df.residual(reduced_model) - df.residual(full_model)
+df
+
+# p-value
+1 - pchisq(dd_stat, df = 1)
+```
+
+Alternatively, it can be conducted using the `anova()` command:
+```{r}
+anova(reduced_model, full_model, test = "Chisq")
+```
+
+
+## Examining linearity
+
+As mentioned in passing on page 620, we can check whether the relationship between the logit and a quantitative predictor is linear by using the sample (empirical) logit. The setup code-chunk in this r markdown document defines the function `elogit()` which calculates the empirical logit and produces a data frame for plotting. You can copy and paste this code, or load it using the following code:
+
+```{r}
+source("http://aloy.rbind.io/r/empiricalLogit.R")
+```
+
+Once you have this function, you can reproduce Display 20.11:
+
+```{r}
+sample_logit <- elogit(case2002$YR, case2002$LC, breaks = c(0, 1, 20, 30, 40, 50))
+gf_point(elogit ~ midpoint.x, data = sample_logit) %>%
+  gf_labs(x = "Years smoked (midpoint of interval)", y = "Sample Logit")
+```
+
+Note: if you are not sure what intervals to use, but know the number of intervals desired, you can specify `nbins` rather than `breaks` in the `elogit()` function.

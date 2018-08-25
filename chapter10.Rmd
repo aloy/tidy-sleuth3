@@ -1,0 +1,232 @@
+---
+title: 'Statistical Sleuth in R: Chapter 10'
+author: "Adam Loy"
+date: "Last updated: `r format(Sys.time(), '%B %d, %Y')`"
+geometry: margin=.9in 
+output:
+  pdf_document:
+    number_sections: yes
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE, warning=FALSE}
+options(width = 90)
+knitr::opts_chunk$set(echo = TRUE, comment = NULL, fig.height = 3, fig.width = 4)
+library(dplyr)
+library(ggformula)
+library(Sleuth3)
+library(stargazer)
+```
+
+
+# Introduction
+
+This document is intended to help describe how to undertake analyses introduced as examples in the Third Edition of the *Statistical Sleuth* (2013) by Fred Ramsey and Dan Schafer. More information about the book can be found at http://www.proaxis.com/~panorama/home.htm.  
+
+This work adapts work done by Linda Loi, Ruobing Zhang, Kate Aloisio, and Nicholas J. Horton. Their work leveraged initiatives undertaken by Project MOSAIC (http://www.mosaic-web.org), an NSF-funded effort to improve the teaching of statistics, calculus, science and computing in the undergraduate curriculum. 
+
+In this chapter we need to load the following packages (remember, you will need to install packages you have never used before if you are using your own computer).
+
+```{r message=FALSE, warning=FALSE}
+library(ggformula) # graphics
+library(Sleuth3)   # Sleuth data sets
+library(broom)     # extract pieces of lm output
+library(gridExtra) # arrange multiple plots on a page
+library(stargazer) # tables to display/compare models
+```
+
+We will also set some options to improve legibility of graphs and output.
+```{r eval=TRUE}
+options(digits=4) # display four significant digits by default
+```
+
+
+# Galileo’s data on the motion of falling bodies
+
+Galileo investigated the relationship between height and horizontal distance. This is the question addressed in case study 10.1 in the Sleuth.
+
+## Data coding, summary statistics and graphical display
+
+We begin by reading the data and summarizing the variables.
+
+```{r}
+summary(case1001)
+```
+
+There were a total of 7 trials of Galileo’s experiment. For each trial, he recorded the initial height
+and then measured the horizontal distance as shown in Display 10.1 (page 272). We can start to explore this relationship by creating a scatterplot of Galileo’s horizontal distances versus initial heights. The following graph is akin to Display 10.2 (page 273).
+
+```{r}
+gf_point(Distance ~ Height, data = case1001) %>%
+  gf_labs(x = "Horizontal distance (punti)", y = "Initial height (punti)")
+```
+
+## Models
+
+The first model created is a cubic model as interpreted on page 273 and summarized in
+Display 10.13 (page 291).
+
+```{r}
+galileo_lm1 <- lm(Distance ~ Height + I(Height^2) + I(Height^3), data = case1001)
+summary(galileo_lm1)
+```
+
+We next decrease the polynomial for Height by one degree to obtain a quadratic model as
+interpreted on page 273 and summarized in Display 10.7 (page 281). This model is used for most
+of the following results.
+
+```{r}
+galileo_lm2 <- lm(Distance ~ Height + I(Height^2), data = case1001)
+summary(galileo_lm2)
+```
+
+The following figure replicates Display 10.2 (page 273), displaying the fitted quadratic model.
+
+```{r}
+gf_point(Distance ~ Height, data = case1001) %>%
+  gf_lm(formula = y ~ x + I(x^2)) %>%
+  gf_labs(x = "Horizontal distance (punti)", y = "Initial height (punti)")
+
+```
+
+To obtain the expected values of $\widehat{\mu}({\rm Distance}|{\rm Height} = 0)$ and $\widehat{\mu}({\rm Distance}|{\rm Height} = 250)$, we use the `predict()` command with the quadratic model as shown in Display 10.7 (page 281).
+
+```{r}
+predict(galileo_lm2, newdata = data.frame(Height = c(0, 250)), interval = "confidence")
+```
+
+We can also verify the above confidence interval calculations with the following code:
+
+```{r}
+# Obtain the fitted value and SE
+predict(galileo_lm2, newdata = data.frame(Height = c(0, 250)), interval = "confidence", se.fit = TRUE)
+
+# "by-hand" calculation
+355.5 + c(-1, 1) * qt(0.975, df = 4) * 6.625 
+```
+
+To verify numbers on page 284, an interval for the predicted values , we used the following code:
+
+```{r}
+predict(galileo_lm2, newdata = data.frame(Height = c(0, 250)), interval = "predict")
+```
+
+Lastly, we produced an ANOVA for the quadratic model interpreted on page 288 (Display
+10.11). Notice that to get the entries for the "Regression" row on Display 10.11, you need to add the entries from the first two rows. This is because R displays sequential sums of squares and degrees of freedom. (Caution: Only the last p-value is valid!)
+
+```{r}
+anova(galileo_lm2)
+```
+
+#  Echolocation in bats
+
+How do bats make their way about in the dark? Echolocation requires a lot of energy. Does it
+depend on mass and species? This is the question addressed in case study 10.2 in the *Sleuth*.
+
+## Data coding, summary statistics and graphical display
+
+We begin by reading the data, performing transformations where necessary and summarizing the
+variables.
+
+```{r}
+case1002$Type <-factor(case1002$Type, 
+                       levels = c("non-echolocating bats", "non-echolocating birds", 
+                                  "echolocating bats"))
+summary(case1002)
+```
+
+A total of 20 flying vertebrates were included in this study. There were 4 echolocating bats,
+4 non-echolocating bats, and 12 non-echolocating birds. For each subject their mass and flight
+energy expenditure were recorded as shown in Display 10.3 (page 274).
+
+Next, we explore the relationship between log(energy expenditure) as a function of log(body
+mass) for each group with a scatterplot. The following figure reproduces Display 10.4 (page 275).
+
+```{r}
+gf_point(log(Energy) ~ log(Mass), data = case1002, shape = ~Type) %>%
+  gf_labs(x = "Body Mass (g) (log scale)", y = "Energy Expenditure (W) (log scale)") %>%
+  gf_theme(legend.position=c(.2, .9)) # 0,0 is the bottom left; 1,1 is the top right
+```
+
+## Multiple regression
+
+We first evaluate a multiple regression model for log(energy expenditure) given type of species and log(body mass) as defined on page 276 and shown in Display 10.6 (page 277).
+
+```{r}
+energy_lm1 <- lm(log(Energy) ~ log(Mass) + Type, data = case1002)
+summary(energy_lm1)
+```
+
+Next, we calculate confidence intervals for the coefficients that are interpreted on page 278.
+
+```{r}
+confint(energy_lm1)
+exp(confint(energy_lm1))
+```
+
+Since the significance of a model depends on which variables are included, *Sleuth* proposes
+two other models, one only looking at the type of flying animal and the other allows the three
+groups to have different straight-line regressions with mass. These two models are displayed below and discussed on pages 278-279.
+
+```{r}
+energy_lm2 <- lm(log(Energy) ~ Type, data = case1002)
+energy_lm3 <- lm(log(Energy) ~ log(Mass) * Type, data = case1002)
+```
+
+Table 1 presents the models displays on page 279 using `stargazer`.
+
+```{r, results='asis'}
+stargazer(energy_lm2, energy_lm1, energy_lm3, type = "latex", digits = 2, 
+          omit.table.layout = "sn", 
+          title = "Coefficients and standard errors for the three models on pare 279 in Sleuth.", 
+          header=FALSE, 
+          covariate.labels = c("lmass", "bird", "ebat", "bird:lmass", "ebat:lmass"))
+```
+
+
+Next we can assess the model by evaluating the extra sums of squares F-test for testing the
+equality of intercepts in the parallel regression lines model as shown in Display 10.10 (page 287).
+
+```{r}
+energy_slr <- lm(log(Energy) ~ log(Mass), data = case1002)
+anova(energy_slr, energy_lm1)
+```
+
+We can also compare the full model with interaction terms and the reduced model (without
+interaction terms) with the extra sum of squares F-test as described in Display 10.12 (page 290).
+
+```{r}
+anova(energy_lm1, energy_lm3)
+```
+
+## Linear combinations of regression coefficients
+
+Finally, we can obtain the standard error for $\beta_2 - \beta_3$, as detailed on Display 10.15 (page 294), using the below commands:
+
+```{r}
+# 1. estimate the linear combination
+estimate <- coef(energy_lm1)[3] - coef(energy_lm1)[4]
+estimate
+
+# 2. Obtain the variance-covariance matrix of the coefficients
+V <- vcov(energy_lm1)
+V
+
+# 3. Calculate the estimated variance of the linear combination
+v.b2 <- V[3, 3]
+v.b2
+
+v.b3 <- V[4, 4]
+v.b3
+
+cov.b2b3 <- V[3, 4]
+cov.b2b3
+
+estimated_var <- v.b2 + v.b3 - 2 * cov.b2b3
+estimated_var
+
+se <- sqrt(estimated_var)
+se
+```
+

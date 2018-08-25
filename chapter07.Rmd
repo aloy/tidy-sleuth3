@@ -1,0 +1,232 @@
+---
+title: 'Statistical Sleuth in R: Chapter 7'
+author: "Adam Loy"
+date: "Last updated: `r format(Sys.time(), '%B %d, %Y')`"
+geometry: margin=.9in 
+output: 
+  pdf_document:
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+options(width = 90)
+library(dplyr)
+library(ggformula)
+library(Sleuth3)
+```
+
+
+# Introduction
+
+This document is intended to help describe how to undertake analyses introduced as examples in the Third Edition of the *Statistical Sleuth* (2013) by Fred Ramsey and Dan Schafer. More information about the book can be found at http://www.proaxis.com/~panorama/home.htm.  
+
+This work adapts work done by Linda Loi, Ruobing Zhang, Kate Aloisio, and Nicholas J. Horton. Their work leveraged initiatives undertaken by Project MOSAIC (http://www.mosaic-web.org), an NSF-funded effort to improve the teaching of statistics, calculus, science and computing in the undergraduate curriculum. 
+
+In this chapter we need to load the following packages (remember, you will need to install packages you have never used before if you are using your own computer).
+
+```{r message=FALSE}
+library(ggformula) # graphics
+library(Sleuth3)   # Sleuth data sets
+library(broom)     # extract pieces of lm output
+library(gridExtra) # arrange multiple plots on a page
+```
+
+We will also set some options to improve legibility of graphs and output.
+```{r eval=TRUE}
+options(digits=4) # display four significant digits by default
+```
+
+# The Big Bang
+
+Is there relation between distance and radial velocity among extra-galactic nebulae? This is the question addressed in case study 7.1 in the *Sleuth*.
+
+##  Summary statistics and graphical display
+
+We begin by reading the data (which is done when you loaded the `Sleuth3` package) and summarizing the variables.
+
+```{r}
+summary(case0701)
+```
+
+A total of 24 nebulae are included in this data set.
+
+```{r fig.height=2.5, fig.width=6}
+hist1 <- gf_histogram(~Velocity, data = case0701, bins = 10)
+hist2 <- gf_histogram(~Distance, data = case0701, bins = 10)
+grid.arrange(hist1, hist2, ncol = 2)
+```
+
+The histograms are somewhat hard to interpret with the small sample sizes. I am hesitant to call the distribution of velocity multimodal. In such situations, density plots can help clarify the shape of the distribution, since their interpretation does not rely on the number of bins.
+
+```{r fig.height=2.5, fig.width=6}
+d1 <- gf_density(~Velocity, data = case0701, bins = 10)
+d2 <- gf_density(~Distance, data = case0701, bins = 10)
+grid.arrange(d1, d2, ncol = 2)
+```
+
+The density plots show that the distributions for the two variables are fairly symmetric, but more uniform than normally distributed.
+
+```{r fig.height=3, fig.width=4}
+gf_point(Distance ~ Velocity, data= case0701) +
+  xlab("Recession Velocity (km/sec)") +
+  ylab("Distance (megaparsecs)")
+```
+
+The scatterplot is displayed on page 177 of the *Sleuth*. It indicates that there is a fairly strong, linear relationship between distance and velocity.
+
+
+## The simple linear regression model
+
+The following code presents the results interpreted on page 186 of the *Sleuth*.
+
+```{r}
+mod1 <- lm(Distance ~ Velocity, data = case0701)
+summary(mod1)
+```
+
+The estimated parameter for the intercept is 0.3992 megaparsecs and the estimated parameter for velocity is 0.0014 megaparsecs/(km/sec). The estimated mean function is $\hat{mu} (\text{distance}|\text{velocity}) = 0.3992 + 0.0014 (\text{velocity})$. The estimate of the residual standard error is 0.4056 megaparsecs with 22 degrees of freedom. These results are also presented by Display 7.9 (page 187).
+
+Display 7.8 (page 186) shows the list of fitted values and residuals for this model. We can easily obtain these using the `augment` function in the `broom` package (these are in the `.fitted` column).
+
+```{r size = 'footnotesize'}
+bang_augmented <- augment(mod1)
+bang_augmented
+```
+
+Alternatively, you can extract the fitted values using the `fitted` function and the residuals using the `resid` function:
+
+```{r}
+fitted(mod1)
+resid(mod1)
+```
+
+The sum of the squared residuals is 3.62 and R-squared is 0.6062.
+```{r}
+sum(resid(mod1)^2)
+sum(resid(mod1)^2) / sum((fitted(mod1) - mean(case0701$Distance))^2)
+```
+
+We can also display 95% confidence bands for the model line and the predicted values, the following graph is akin to Display 7.11 (page 191).
+
+```{r  fig.height=3, fig.width=4}
+gf_point(Distance ~ Velocity, data = case0701) %>%
+  gf_lm(interval = "prediction") %>%
+  gf_lm(interval = "confidence", alpha = 0.5) 
+```
+
+
+## Inferential Tools
+
+First, we test $\beta_0$ (the intercept). From the previous summary, we know that the two-sided p-value for the intercept is 0.0028. This p-value is small enough for us to reject the null hypothesis that the estimated parameter for the intercept equals 0 (page 188).
+
+Next, we want to examine $\beta_1$. The current $\beta_1$ for $\hat{\mu}(Y|X) = \beta_0 + \beta_1 X$ is 0.0014, and we want to get the $\beta_1$ for $\hat{\mu}(Y|X) = \beta_1 X$, a model with no intercept (page 188)
+
+```{r}
+# linear regression with no intercept
+mod2 <- lm(Distance ~ Velocity - 1, data = case0701)
+summary(mod2)
+confint(mod2)
+```
+
+Without the intercept, the new estimate for $\beta_1$ is 0.0019 megaparsec-second/km. The standard error is $1.91 \times 10^{-4}$ megaparsecs with 23 degrees of freedom. The 95% confidence interval is (0.0015, 0.0023). Because 1 megaparsec-second/km = 979.8 billion years, the confidence interval could be written as 1.49 to 2.27 billion years, and the best estimate is 1.88 billion years (page 188).
+
+
+# Meat Processing and pH
+
+Is there a relationship between postmortem muscle pH and time after slaughter? This is the question addressed in case study 7.2 in the *Sleuth*.
+
+
+##  Summary statistics and graphical display
+
+We begin by loading the data and summarizing the variables.
+
+```{r}
+summary(case0702)
+```
+
+A total of 10 steer carcasses are included in this data as shown in Display 7.3, page 179.
+
+```{r fig.height=3, fig.width=4}
+gf_point(pH ~ log(Time), data = case0702)
+```
+
+The above scatterplot indicates a negative linear relationship between pH and log(Time).
+
+
+## The simple linear regression model
+
+We fit a simple linear regression model of pH on log(time) after slaughter. The estimated mean function will be $\hat{\mu} = (\text{pH}|\text{logtime}) = \beta_0 + \beta_1  \log(\text{Time})$.
+
+```{r}
+mod3 <- lm(pH ~ log(Time), data = case0702)
+summary(mod3)
+coef(mod3)
+```
+
+$\hat{\beta}_0 = `r coef(mod3)[1]`$, $\hat{\beta}_1 = `r coef(mod3)[2]`$, and $\hat{\sigma} = `r sigma(mod3)`$. (See page 189.)
+
+
+## Inferential Tools
+
+With the previous information, we can calculate the 95% confidence interval for the estimated mean pH of steers 4 hours after slaughter (Display 7.10, page 189):
+
+```{r}
+beta0 <- coef(mod3)[1]
+beta1 <- coef(mod3)[2]
+mu <- beta0 + beta1 * log(4)
+
+n <- nrow(case0702)
+sigma_hat <- sigma(mod3)
+meanx <- mean(log(case0702$Time))
+sdx <- sd(log(case0702$Time))
+
+se <- sigma_hat * sqrt(1/n + (log(4) - meanx)^2/((n - 1) * sdx))
+se
+
+upper <- mu + qt(0.975, df = 8) * se
+upper
+
+lower <- mu - qt(0.975, df = 8) * se
+lower
+```
+
+Or we can use the following code to get the same result:
+
+```{r}
+predict(mod3, newdata = data.frame(Time = 4), interval = "confidence")
+```
+
+So the 95% confidence interval for estimated mean is (5.92, 6.04).
+
+Next, we can calculate the 95% prediction interval for a steer carcass 4 hours after slaughter (Display 7.12, page 193):
+
+```{r}
+pred <- beta0 + beta1 * log(4)
+pred
+
+pred_se <- sigma_hat * sqrt(1 + 1/n + (log(4) - meanx)^2/((n - 1) * sdx))
+pred_se
+
+pred_upper <- pred + qt(0.975, df = 8) * pred_se
+pred_upper
+
+pred_lower <- pred - qt(0.975, df = 8) * pred_se
+pred_lower
+```
+
+Or we can use the following code to get the 95% prediction interval for a steer carcass 4 hours after slaughter:
+
+```{r}
+predict(mod3, newdata = data.frame(Time = 4), interval = "prediction")
+```
+
+So the 95% prediction interval is (5.78, 6.18).
+
+The 95% prediction band is presented as Display 7.4 (page 180):
+
+```{r fig.height=3, fig.width=4}
+gf_point(pH ~ log(Time), data = case0702) %>%
+  gf_lm(interval = "prediction") %>%
+  gf_lm(interval = "confidence", alpha = 0.5)
+```
+

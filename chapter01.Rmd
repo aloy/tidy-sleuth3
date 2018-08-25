@@ -1,0 +1,209 @@
+---
+title: 'Statistical Sleuth in R: Chapter 1'
+author: "Adam Loy"
+date: "Last updated: `r format(Sys.time(), '%B %d, %Y')`"
+output: 
+  pdf_document:
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(ggformula)
+library(Sleuth3)
+```
+
+
+# Introduction
+
+This document is intended to help describe how to undertake analyses introduced as examples in the Third Edition of the *Statistical Sleuth* (2013) by Fred Ramsey and Dan Schafer. More information about the book can be found at http://www.proaxis.com/~panorama/home.htm.  
+
+This work adapts work done by Linda Loi, Ruobing Zhang, Kate Aloisio, and Nicholas J. Horton. Their work leveraged initiatives undertaken by Project MOSAIC (http://www.mosaic-web.org), an NSF-funded effort to improve the teaching of statistics, calculus, science and computing in the undergraduate curriculum. 
+
+To use a package within R, it must be installed (one time), and loaded (each session). The package can be installed using the following command:
+
+```{r install_mosaic,eval=FALSE}
+install.packages("dplyr")               # note the quotation marks
+```
+
+Once this is installed, it can be loaded by running the command:
+
+```{r load_mosaic,eval=FALSE}
+library(dplyr)
+```
+
+This needs to be done once per session.
+
+The `dplyr` package will allow us to easily manipulate data. We will also use the `ggformula` package for data visualization:
+
+```{r install_ggformula,eval=FALSE}
+install.packages("ggformula")               # note the quotation marks
+```
+```{r load_ggformula,eval=FALSE}
+library(ggformula)
+```
+
+
+In addition the data files for the *Sleuth* case studies can be accessed by installing the *Sleuth3* package.
+```{r install_Sleuth3,eval=FALSE}
+install.packages("Sleuth3")               # note the quotation marks
+```
+```{r load_Sleuth3,eval=FALSE}
+library(Sleuth3)
+```
+
+We also set some options to improve legibility of graphs and output.
+```{r eval=TRUE}
+options(digits=3) # display three significant digits by default
+```
+
+The specific goal of this document is to demonstrate how to calculate the quantities described in Chapter 1: Drawing Statistical Conclusions using R.
+
+# Motivation and Creativity
+
+For Case Study 1: Motivation and Creativity, the following questions are posed: Do grading systems promote creativity in students? Do ranking systems and incentive awards increase productivity among employees? Do rewards and praise stimulate children to learn? 
+
+The data for Case Study 1 was collected by psychologist Teresa Amabile in an experiment concerning the effects of intrinsic and extrinsic motivation on creativity (page 2 of the *Sleuth*).
+
+## Statistical summary and graphical display
+
+We begin by reading the data and summarizing the variables.
+```{r}
+data(case0101)
+summary(case0101)
+```
+
+A total of 47 subjects with considerable experience in creative writing were randomly assigned to one of two treatment groups: 23 were placed into the “extrinsic” treatment group and 24 were placed into the “intrinsic” treatment group, as summarized in Display 1.1 (Sleuth, page 2) 
+
+To calculate summary statistics for each group we can use the tools in the `dplyr` package:
+
+```{r}
+case0101 %>%
+  group_by(Treatment) %>%
+  summarize(min = min(Score), Q1 = quantile(Score, probs = .25),
+            median = median(Score), Q3 = quantile(Score, probs = .75),
+            max = max(Score), mean = mean(Score), sd = sd(Score))
+```
+
+Alternatively, you can use `tapply` (which may be familiar from a pervious class):
+
+```{r}
+tapply(case0101$Score, case0101$Treatment, summary) # 5-number summary + mean
+tapply(case0101$Score, case0101$Treatment, sd)      # std. deviation
+```
+
+```{r fig.height=2.5, fig.width=5}
+gf_histogram( ~Score | Treatment, data = case0101, binwidth = 5)
+```
+
+To create stem-and-leaf plots for each level of a categorical variable, first load the `CarletonStats` package
+
+```{r}
+library(CarletonStats)
+stemPlot(Score ~ Treatment, data = case0101)
+```
+
+The extrinsic group ($n=23$) has an average creativity score that is 4.1 points less than the
+intrinsic group ($n=24$). The extrinsic group has relatively larger spread than the intrinsic group
+($\text{sd}=5.25$ for extrinsic group and $\text{sd}=4.44$ for intrinsic group). Both distributions are approximately normally distributed.
+
+## Inferential procedures (two-sample t-test)
+
+```{r}
+t.test(Score ~ Treatment, alternative = "two.sided", data = case0101)
+```
+
+The two-sample t-test shows strong evidence that a subject would receive a lower creativity
+score for a poem written after the extrinsic motivation questionnaire than for one written after the
+intrinsic motivation questionnaire. The two-sided p-value is 0.006, which is small enough to reject
+the null hypothesis.
+
+Thus, we can conclude that there is a difference between the population mean in the extrinsic
+group and the population mean in the intrinsic group; the estimated difference between these two
+scores is 4.1 points on the 0-40 point scale. A 95% confidence interval for the decrease in score due
+to having extrinsic motivation rather than intrinsic motivation is between $-1.28$ and $-7.01$ points
+(*Sleuth*, page 3).
+
+In the creativity study, the question of whether there is a treatment effect becomes a question
+of whether the parameter has a nonzero value. The value of the test statistic for the creativity
+scores is 4.14. (*Sleuth*, page 11).
+
+```{r}
+summary(lm(Score ~ Treatment, data = case0101))
+```
+
+
+## Permutation test
+
+```{r fig.height=3, fig.width=5}
+# permTest is in the CarletonStats package
+permTest(Score ~ Treatment, data = case0101, alternative = "two.sided", B = 1000)
+```
+
+
+As described in the *Sleuth* on page 12, if the group assignment changes, we will get different
+results. First, the test statistics will be just as likely to be negative as positive. Second, the majority
+of values fall in the range from $-3.0$ to $+3.0$. Third, only few of the 1,000 randomization produced
+test statistics as large as 4.14. This last point indicates that 4.14 is a value corresponding to an
+unusually uneven randomization outcome, if the null hypothesis is correct.
+
+
+#  Gender Discrimination
+
+For Case Study 2: Gender Discrimination the following questions are posed: Did a bank discriminatorily
+pay higher starting salaries to men than to women? Display 1.3 (page 4 of the *Sleuth*) displays
+the beginning salaries for male and female skilled entry level clerical employees hired between 1969
+and 1977
+
+```{r}
+summary(case0102) # Display 1.3 Sleuth p4
+```
+
+
+```{r}
+case0102 %>%
+  group_by(Sex) %>%
+  summarize(min = min(Salary), Q1 = quantile(Salary, probs = .25),
+            median = median(Salary), Q3 = quantile(Salary, probs = .75),
+            max = max(Salary), mean = mean(Salary), sd = sd(Salary))
+```
+
+```{r fig.height=2.5, fig.width=4}
+gf_boxplot(Salary ~ Sex, data = case0102) # display 1.12
+gf_histogram(~ Salary | Sex, data = case0102, binwidth = 400) # display 1.4
+gf_density(~Salary, fill = ~Sex, data = case0102)
+```
+
+The 0 men have an average starting salary that is \$818 more than the 61 women (\$5957 vs
+\$5139). Both distributions have similar spread (sd=\$539.87 for women and sd=\$690.73 for men)
+and distributions that are approximately normally distributed (see density plot). The key difference
+between the groups is the shift (as indicated by the parallel boxplots).
+
+
+## Inferential procedures (two-sample t-test)
+
+The t-test on page 4 of Sleuth can be replicated using the following commands (note that the
+equal-variance t-test is specified by `var.equal=TRUE` which is not the default).
+
+```{r}
+t.test(Salary ~ Sex, var.equal = TRUE, data = case0102, alternative = "less")
+```
+
+
+## Permutation test
+
+We undertake a permutation test to assess whether the differences in the center of these samples
+that we are observing are due to chance, if the distributions are actually equivalent back in the
+populations of male and female possible clerical hires. We start by calculating our test statistic
+(the difference in means) for the observed data, then simulate from the null distribution (where the
+labels can be interchanged) and calculate our p-value.
+
+```{r fig.height=3, fig.width=5}
+permTest(Salary ~ Sex, data = case0102, alternative = "less")
+```
+
+
+Through the permutation test, we observe that the mean starting salary for males is significantly
+larger than the mean starting salary for females, as we never see a permuted difference in means
+close to our observed value. Therefore, we reject the null hypothesis (p < 0.001) and conclude that
+the salaries of the men are higher than that of the women back in the population

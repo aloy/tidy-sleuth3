@@ -1,0 +1,109 @@
+---
+title: 'Statistical Sleuth in R: Chapter 2'
+author: "Adam Loy"
+date: "Last updated: `r format(Sys.time(), '%B %d, %Y')`"
+output: 
+  pdf_document:
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(ggformula)
+library(Sleuth3)
+```
+
+
+# Introduction
+
+This document is intended to help describe how to undertake analyses introduced as examples in the Third Edition of the *Statistical Sleuth* (2013) by Fred Ramsey and Dan Schafer. More information about the book can be found at http://www.proaxis.com/~panorama/home.htm.  
+
+This work adapts work done by Linda Loi, Ruobing Zhang, Kate Aloisio, and Nicholas J. Horton. Their work leveraged initiatives undertaken by Project MOSAIC (http://www.mosaic-web.org), an NSF-funded effort to improve the teaching of statistics, calculus, science and computing in the undergraduate curriculum. 
+
+In this chapter we need to load the following packages
+
+```{r message=FALSE}
+library(ggformula) # graphics
+library(dplyr)     # data manipulation
+library(Sleuth3)   # Sleuth data sets
+```
+
+
+# Evidence Supporting Darwin’s Theory of Natural Selection
+
+Do birds evolve to adapt to their environments? That’s the question being addressed by Case
+Study 2.1 in the *Sleuth*.
+
+## Statistical summary and graphical display
+
+```{r}
+summary(case0201)
+```
+
+```{r}
+case0201 %>%
+  group_by(Year) %>%
+  summarize(min = min(Depth), Q1 = quantile(Depth, probs = .25),
+            median = median(Depth), Q3 = quantile(Depth, probs = .75),
+            max = max(Depth), mean = mean(Depth), sd = sd(Depth))
+```
+
+A total of 178 subjects are included in the data: 89 are finches that were caught in 1976 and
+89 are finches that were caught in 1978. The following are alternatives to Display 2.1 on page 30.
+
+```{r fig.height=3, fig.width=5}
+gf_boxplot(Depth ~ factor(Year), data = case0201) + 
+  xlab("Year") +
+  coord_flip()
+```
+
+```{r fig.height=3, fig.width=5}
+gf_histogram(~Depth, data = case0201, bins = 15) +
+  facet_wrap(~Year)
+```
+
+```{r fig.height=3, fig.width=5}
+gf_density(~Depth, fill= ~factor(Year), data = case0201) +
+  scale_fill_brewer("Year", palette = "Set2")
+```
+
+The distributions are approximately normally distributed, with some evidence for a long left tail.
+
+
+## Inferential procedures (two-sample t-test)
+
+We can get the results of “Summary of Statistical Findings” (page 29) by using the following code:
+
+```{r}
+ t.test(Depth ~ Year, var.equal = TRUE, data = case0201)
+```
+
+
+**Note:** The assumption that the variances are equal is a relatively strong one, so if there is any doubt, assume unequal variances.
+
+
+# Anatomical Abnormalities Associated with Schizophrenia
+
+Is the area of brain related to the development of schizophrenia? That’s the question being addressed
+by case study 2.2 in the Sleuth.
+
+##  Statistical summary and graphical display
+
+We begin by reading the data and summarizing the variables.
+
+```{r}
+summary(case0202)
+```
+
+A total of 15 subjects are included in the data. There are 15 pairs of twins; one of the twins has
+schizophrenia, and the other does not. So there are 15 affected subjects and 15 unaffected subjects.
+The difference in area of left hippocampus of these pairs of twins is:
+
+## Inferential procedures (paired t-test)
+
+We can get the results displayed on page 32 by conducting a paired t-test:
+
+```{r}
+t.test(case0202$Unaffected, case0202$Affected, paired = TRUE)
+```
+

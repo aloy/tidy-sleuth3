@@ -1,0 +1,176 @@
+---
+title: 'Statistical Sleuth in R: Chapter 9'
+author: "Adam Loy"
+date: "Last updated: `r format(Sys.time(), '%B %d, %Y')`"
+geometry: margin=.9in 
+output:
+  pdf_document:
+    number_sections: yes
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE, warning=FALSE}
+options(width = 90)
+knitr::opts_chunk$set(echo = TRUE, comment = NULL, fig.height = 3, fig.width = 4)
+library(dplyr)
+library(ggformula)
+library(Sleuth3)
+```
+
+
+# Introduction
+
+This document is intended to help describe how to undertake analyses introduced as examples in the Third Edition of the *Statistical Sleuth* (2013) by Fred Ramsey and Dan Schafer. More information about the book can be found at http://www.proaxis.com/~panorama/home.htm.  
+
+This work adapts work done by Linda Loi, Ruobing Zhang, Kate Aloisio, and Nicholas J. Horton. Their work leveraged initiatives undertaken by Project MOSAIC (http://www.mosaic-web.org), an NSF-funded effort to improve the teaching of statistics, calculus, science and computing in the undergraduate curriculum. 
+
+In this chapter we need to load the following packages (remember, you will need to install packages you have never used before if you are using your own computer).
+
+```{r message=FALSE, warning=FALSE}
+library(ggformula) # graphics
+library(Sleuth3)   # Sleuth data sets
+library(broom)     # extract pieces of lm output
+library(gridExtra) # arrange multiple plots on a page
+```
+
+We will also set some options to improve legibility of graphs and output.
+```{r eval=TRUE}
+options(digits=4) # display four significant digits by default
+```
+
+
+# Effects of light on meadowfoam flowering
+Do different amounts of light affect the growth of meadowfoam (a small plant used to create seed oil)? This is the question addressed in case study 9.1 in the Sleuth.
+
+## Data coding, summary statistics and graphical display
+
+We begin by reading the data.
+
+```{r}
+head(case0901)
+```
+
+The original data set codes the `Time` variable as `1 = Late` and `2 = Early`. The code chunk below changes `Time` to a factor with informative labels (rather than using the original numeric labels) and obtains overall summaries of each variable.
+
+```{r}
+case0901 <- mutate(case0901, Time = factor(Time, labels = c("Late", "Early")))
+summary(case0901)
+```
+
+A total of 24 meadowfoam plants were included in this data. There were 12 treatment groups: 6 light intensities at each of the 2 timing levels (Display 9.2, page 239 of the *Sleuth*). The following code generates the scatterplot of the average number of flowers per plant versus the applied light intensity for each of the 12 experimental units akin to Display 9.3 on page 240.
+
+```{r}
+gf_point(Flowers ~ Intensity, data = case0901, color = ~Time, shape = ~Time) %>%
+  gf_lm() %>%
+  gf_labs(x = expression(paste("Light intensity (", mu, "mol/", m^{2},"/sec)")),
+          y = "Flowers per plant")
+```
+
+## Multiple linear regression model
+
+We next fit a multiple linear regression model that specifies parallel regression lines for the mean number of flowers as a function of light intensity as interpreted on page 239.
+
+```{r}
+lm1 <- lm(Flowers ~ Intensity + Time, data = case0901)
+summary(lm1)
+```
+
+We can also fit a multiple linear regression with an interaction between light intensity and timing of its initiation as shown in Display 9.14 (page 260) and interpreted on page 239. Notice that in the regression formula multiplication, i.e. `Intensity * Time`, specifies that both variables and their interaction should be used as explanatory variables in the model.
+
+```{r}
+lm2 <- lm(Flowers ~ Intensity * Time, data = case0901)
+summary(lm2)
+```
+
+We can graphically display these models as shown in Display 9.8 (page 251).
+
+```{r fig.height=8, fig.width=5}
+equal_line <- gf_point(Flowers ~ Intensity, data = case0901, color = ~Time, shape = ~Time) %>%
+  gf_lm(Flowers ~ Intensity, data = case0901, inherit = FALSE) %>%
+  gf_labs(x = expression(paste("Light intensity (", mu, "mol/", m^{2},"/sec)")),
+          y = "Flowers per plant")
+
+aug_lm1 <- augment(lm1)
+parallel_lines <- gf_point(Flowers ~ Intensity, data = case0901, color = ~Time, shape = ~Time) %>%
+  gf_lm(.fitted ~ Intensity, data = aug_lm1) %>%
+  gf_labs(x = expression(paste("Light intensity (", mu, "mol/", m^{2},"/sec)")),
+          y = "Flowers per plant")
+
+separate_lines <- gf_point(Flowers ~ Intensity, data = case0901, color = ~Time, shape = ~Time) %>%
+  gf_lm() %>%
+  gf_labs(x = expression(paste("Light intensity (", mu, "mol/", m^{2},"/sec)")),
+          y = "Flowers per plant")
+
+grid.arrange(separate_lines, parallel_lines, equal_line, ncol = 1)
+```
+
+
+# Why do some mammals have large brains?
+
+What characteristics predict large brains in mammals? This is the question addressed in case study 9.2 in the *Sleuth*. We begin by reading the data and summarizing the variables.
+
+```{r}
+summary(case0902)
+```
+
+A total of 96 mammals were included in this data. The average values of brain weight, body
+weight, gestation length, and litter size for each of the species were calculated and presented in Display 9.4 (page 241 of the *Sleuth*).
+
+## Graphical presentation
+
+The following displays a simple (unadorned) pairs plot, similar to Display 9.10 on page 255.
+
+```{r fig.width = 5, fig.height = 5}
+pairs(Brain ~ Body + Gestation + Litter, data = case0902)
+```
+
+Fancier options are available. If you install the `car` package, then you can use the `scatterplotMatrix()` command (notice the difference in the formula syntax):
+
+```{r message=FALSE, fig.width = 5, fig.height = 5}
+library(car)
+scatterplotMatrix(~Brain + Body + Gestation + Litter, data = case0902)
+```
+
+By default both a smoother and a regression line are drawn by `scatterplotMatrix()`, to omit these add the arguments `smooth = FALSE` and/or `regLine = FALSE`. For more information about customizations, see the help menu for the function.
+
+Finally, you can render `ggplot2`-style scatterplot matrices via the `ggpairs` function in the `GGally` package.
+
+```{r fig.width = 7, fig.height = 5}
+library(GGally)
+ggpairs(data = case0902, columns = c("Brain", "Body", "Gestation", "Litter"))
+```
+
+
+The following displays a jittered scatterplot of log brain weight as a function of log litter size, similar to Display 9.12 on page 258.
+
+```{r}
+gf_jitter(log(Brain) ~ Litter, data = case0902) %>%
+  gf_labs(x = "Litter size (jittered)", y = "Brain Weight (g) (log scale)") %>%
+  gf_refine(scale_x_continuous(breaks = 1:8))
+```
+
+The following displays a jittered scatterplot using the original data stratified by body weight on a log-transformed axis, similar to Display 9.13 on page 259.
+
+```{r fig.height=6}
+case0902 <- mutate(case0902, 
+                   weightcut = cut(Body, breaks = c(0, 2.1, 9.1, 100, 4200),
+                                   labels = c("Body Weight: 0kg to 2.1kg", 
+                                              "Body Weight: 2.1kg to 9.1kg", 
+                                              "Body Weight: 9.1kg to 100kg",
+                                              "Body Weight: 100 to 4,200")))
+
+gf_point(log(Brain) ~ Gestation, data = case0902) %>%
+  gf_facet_wrap(~weightcut, ncol = 1) %>%
+  gf_labs(x = "Gestation length (days)", y = "Brain Weight (g) (log scale)")
+```
+
+## Multiple linear regression model
+
+The following model is interpreted on page 240 and shown in Display 9.15 (page 260).
+
+```{r}
+lm3 <- lm(log(Brain) ~ log(Body) + log(Gestation) + log(Litter), data = case0902)
+summary(lm3)
+```
+

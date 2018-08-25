@@ -1,0 +1,138 @@
+---
+title: 'Statistical Sleuth in R: Chapter 21'
+author: "Adam Loy"
+date: "Last updated: `r format(Sys.time(), '%B %d, %Y')`"
+geometry: margin=.9in 
+output:
+  pdf_document:
+    number_sections: yes
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE, warning=FALSE}
+options(width = 90)
+knitr::opts_chunk$set(echo = TRUE, comment = NULL, fig.height = 3, fig.width = 4)
+library(dplyr)
+library(ggformula)
+library(Sleuth3)
+library(broom)
+```
+
+
+# Introduction
+
+This document is intended to help describe how to undertake analyses introduced as examples in the Third Edition of the *Statistical Sleuth* (2013) by Fred Ramsey and Dan Schafer. More information about the book can be found at http://www.proaxis.com/~panorama/home.htm.  
+
+In this chapter we need to load the following packages (remember, you will need to install packages you have never used before if you are using your own computer).
+
+```{r message=FALSE, warning=FALSE}
+library(dplyr)     # data manipulation
+library(ggformula) # graphics
+library(Sleuth3)   # Sleuth data sets
+```
+
+We will also set some options to improve legibility of graphs and output.
+```{r eval=TRUE}
+# display four significant digits by default and no significance stars
+options(digits = 4, show.signif.stars = FALSE) 
+```
+
+
+# Island Size and Bird Extinctions
+
+## EDA
+
+Calculating the proportions and empirical logits...
+
+```{r}
+case2101 <- case2101 %>%
+  mutate(prop = Extinct / AtRisk, 
+         logit = log((Extinct + 0.5) / (AtRisk - Extinct + 0.5)))
+head(case2101)
+```
+
+
+```{r display 21.2}
+gf_point(logit ~ Area, data = case2101) %>%
+  gf_refine(coord_trans(x="log10")) %>%
+  gf_labs(x = "Area (sq. km, log scale)", y = "Logit")
+```
+
+## Fitting a logistic regression model
+
+```{r display 21.6}
+island_glm1 <- glm(prop ~ log(Area), data = case2101,
+                   family = binomial, weights = AtRisk)
+summary(island_glm1)
+```
+
+
+## Examining residuals
+
+```{r display 21.5}
+island_resids <- case2101 %>%
+  select(Island, prop) %>%
+  mutate(raw.resid = resid(island_glm1, type = "response"),
+         pearson.resid = resid(island_glm1, type = "pearson"),
+         dev.resid = resid(island_glm1, type = "deviance"))
+head(island_resids)
+```
+
+## Deviance goodness-of-fit test
+
+```{r}
+deviance(island_glm1)
+df.residual(island_glm1)
+1 - pchisq(12.06, df = 16)
+```
+
+Note: the deviance statistic can also be found are the "Residual deviance" in the summary of the fitted logistic regression model. (You should look at the summary above to verify this.)
+
+
+## Inference about model coefficients
+
+```{r display 21.7}
+tidy(island_glm1)
+```
+
+```{r}
+beta1 <- coef(island_glm1)[2]
+beta1
+
+se <- sqrt(vcov(island_glm1)[2,2])
+se
+
+beta1 + c(-1, 1) * qnorm(.975) * se
+```
+
+Drop-in-deviance test
+```{r}
+island_reduced <- update(island_glm1, . ~ . - log(Area))
+anova(island_reduced, island_glm1, test = "Chisq")
+```
+
+
+# Moth Coloration and Natural Selection
+
+
+## EDA
+
+Calculating the proportions and empirical logits...
+
+```{r}
+case2102 <- case2102 %>%
+  mutate(prop = Removed / Placed,
+         logit = log((Removed + 0.5) / (Placed - Removed + 0.5)))
+head(case2102)
+```
+
+```{r display 21.4}
+gf_point(logit ~ Distance, data = case2102, color = ~Morph) %>%
+  gf_line() %>%
+  gf_refine(scale_color_brewer(palette = "Set2")) %>%
+  gf_labs(x = "Distance (km) from Liverpool",
+          y = "Logit")
+```
+
+
